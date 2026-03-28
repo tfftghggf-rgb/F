@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Liminal Pools</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Courier New', Courier, monospace;
+            touch-action: none; /* Crucial for mobile controls */
+        }
+        #gameCanvas {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+        /* VHS & CRT Effects */
+        .vhs-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            pointer-events: none;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%);
+            background-size: 100% 4px;
+            z-index: 10;
+            mix-blend-mode: overlay;
+        }
+        .screen-glitch {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            pointer-events: none;
+            box-shadow: inset 0 0 100px rgba(0, 50, 50, 0.5);
+            filter: contrast(1.2) saturate(0.8) sepia(0.3) hue-rotate(-15deg);
+            z-index: 9;
+        }
+        /* UI Elements */
+        #uiLayer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 20;
+            pointer-events: none;
+            display: none;
+        }
+        #crosshair {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 24px;
+        }
+        /* Mobile Controls */
+        .control-zone {
+            position: absolute;
+            bottom: 0;
+            width: 50%;
+            height: 100%;
+            pointer-events: auto;
+        }
+        #leftZone { left: 0; }
+        #rightZone { right: 0; }
+        
+        #sprintBtn {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            background: rgba(200, 255, 200, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            color: white;
+            font-size: 12px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto;
+            user-select: none;
+            backdrop-filter: blur(4px);
+        }
+        #sprintBtn:active {
+            background: rgba(200, 255, 200, 0.5);
+        }
+
+        /* Start Screen */
+        #startScreen {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: #050a0f;
+            color: #ccddcc;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 30;
+            text-align: center;
+            padding: 20px;
+        }
+        #startBtn {
+            margin-top: 20px;
+            padding: 15px 30px;
+            background: transparent;
+            color: #ccddcc;
+            border: 1px solid #ccddcc;
+            font-family: inherit;
+            font-size: 18px;
+            cursor: pointer;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="startScreen">
+        <h2>THE POOLS</h2>
+        <p>A Liminal Experience.</p>
+        <p style="font-size: 12px; opacity: 0.7;">Left side: Move | Right side: Look</p>
+        <button id="startBtn">ENTER DREAM</button>
+    </div>
+
+    <div class="screen-glitch"></div>
+    <div class="vhs-overlay"></div>
+    
+    <div id="uiLayer">
+        <div id="crosshair">+</div>
+        <div id="leftZone" class="control-zone"></div>
+        <div id="rightZone" class="control-zone"></div>
+        <div id="sprintBtn">SPRINT</div>
+    </div>
+
+    <script>
+        // --- SCENE SETUP ---
+        const scene = new THREE.Scene();
+        // Sickly pastel blue/green fog
+        scene.background = new THREE.Color(0xaaccbd);
+        scene.fog = new THREE.FogExp2(0xaaccbd, 0.04);
+
+        const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 2, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // --- PROCEDURAL TEXTURES ---
+        // Create pool tile texture
+        const tileCanvas = document.createElement('canvas');
+        tileCanvas.width = 128; tileCanvas.height = 128;
+        const ctx = tileCanvas.getContext('2d');
+        ctx.fillStyle = '#d4e6e0'; // pastel mint
+        ctx.fillRect(0, 0, 128, 128);
+        ctx.strokeStyle = '#a4b8b5';
+        ctx.lineWidth = 4;
+        ctx.strokeRect(0, 0, 128, 128);
+        
+        const tileTexture = new THREE.CanvasTexture(tileCanvas);
+        tileTexture.wrapS = THREE.RepeatWrapping;
+        tileTexture.wrapT = THREE.RepeatWrapping;
+        tileTexture.repeat.set(100, 100);
+
+        // --- ENVIRONMENT ---
+        const floorGeo = new THREE.PlaneGeometry(200, 200);
+        const floorMat = new THREE.MeshLambertMaterial({ map: tileTexture });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        scene.add(floor);
+
+        // Water (Reflective illusion)
+        const waterGeo = new THREE.PlaneGeometry(200, 200);
+        const waterMat = new THREE.MeshBasicMaterial({ 
+            color: 0x88ccdd, 
+            transparent: true, 
+            opacity: 0.6 
+        });
+        const water = new THREE.Mesh(waterGeo, waterMat);
+        water.rotation.x = -Math.PI / 2;
+        water.position.y = 0.5; // Water level
+        scene.add(water);
+
+        // Infinite Pillars / Walls
+        const wallGeo = new THREE.BoxGeometry(4, 10, 4);
+        const wallMat = new THREE.MeshLambertMaterial({ map: tileTexture });
+        wallMat.map.repeat.set(2, 5);
+
+        for(let i=0; i<60; i++) {
+            const pillar = new THREE.Mesh(wallGeo, wallMat);
+            pillar.position.set(
+                (Math.random() - 0.5) * 150,
+                5,
+                (Math.random() - 0.5) * 150
+            );
+            // Snap to grid for artificial feel
+            pillar.position.x = Math.round(pillar.position.x / 4) * 4;
+            pillar.position.z = Math.round(pillar.position.z / 4) * 4;
+            scene.add(pillar);
+        }
+
+        // Lighting (flickering fluorescent)
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        scene.add(ambientLight);
+        
+        const pointLight = new THREE.PointLight(0xd4fff0, 0.8, 50);
+        pointLight.position.set(0, 8, 0);
+        scene.add(pointLight);
+
+        // --- GEOMETRIC ENTITIES ---
+        const entities = [];
+        const geometries = [
+            new THREE.BoxGeometry(2, 2, 2),
+            new THREE.OctahedronGeometry(1.5),
+            new THREE.SphereGeometry(1.2, 8, 8)
+        ];
+        const darkMat = new THREE.MeshBasicMaterial({ color: 0x112222, wireframe: false });
+
+        for(let i=0; i<10; i++) {
+            const geo = geometries[Math.floor(Math.random() * geometries.length)];
+            const mesh = new THREE.Mesh(geo, darkMat);
+            mesh.position.set((Math.random() - 0.5) * 100, Math.random() * 5 + 1, (Math.random() - 0.5) * 100);
+            scene.add(mesh);
+            entities.push({
+                mesh: mesh,
+                speed: Math.random() * 0.02,
+                rotSpeed: (Math.random() - 0.5) * 0.05
+            });
+        }
+
+        // --- AUDIO ENGINE (Procedural Dreamcore Music) ---
+        let audioCtx;
+        function initAudio() {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const masterGain = audioCtx.createGain();
+            masterGain.gain.value = 0.4;
+            masterGain.connect(audioCtx.destination);
+
+            // Reverb (using convolution / dummy buffer for underwater feel)
+            const convolver = audioCtx.createConvolver();
+            const reverbBuffer = audioCtx.createBuffer(2, audioCtx.sampleRate * 3, audioCtx.sampleRate);
+            for(let i=0; i<reverbBuffer.length; i++) {
+                reverbBuffer.getChannelData(0)[i] = (Math.random() * 2 - 1) * Math.exp(-i / audioCtx.sampleRate);
+                reverbBuffer.getChannelData(1)[i] = (Math.random() * 2 - 1) * Math.exp(-i / audioCtx.sampleRate);
+            }
+            convolver.buffer = reverbBuffer;
+            convolver.connect(masterGain);
+
+            // Nostalgic Pad (Detuned Oscillators)
+            function playPad(freq) {
+                const osc = audioCtx.createOscillator();
+                const osc2 = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                
+                osc.type = 'sine';
+                osc2.type = 'triangle';
+                osc.frequency.value = freq;
+                osc2.frequency.value = freq * 1.01; // Detune
+
+                osc.connect(gain);
+                osc2.connect(gain);
+                gain.connect(convolver);
+
+                gain.gain.setValueAtTime(0, audioCtx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.2, audioCtx.currentTime + 4);
+                
+                osc.start(); osc2.start();
+            }
+            playPad(110); // A2
+            playPad(164.81); // E3
+
+            // Random dripping sounds
+            setInterval(() => {
+                if(Math.random() > 0.6) {
+                    const drop = audioCtx.createOscillator();
+                    const dropGain = audioCtx.createGain();
+                    drop.type = 'sine';
+                    drop.frequency.setValueAtTime(800 + Math.random()*400, audioCtx.currentTime);
+                    drop.frequency.exponentialRampToValueAtTime(300, audioCtx.currentTime + 0.1);
+                    drop.connect(dropGain);
+                    dropGain.connect(convolver);
+                    dropGain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+                    dropGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+                    drop.start();
+                    drop.stop(audioCtx.currentTime + 0.2);
+                }
+            }, 2000);
+        }
+
+        // --- MOBILE CONTROLS ---
+        let moveTouch = null;
+        let lookTouch = null;
+        let moveVector = new THREE.Vector2();
+        let lookVector = new THREE.Vector2();
+        
+        // Pitch and Yaw for camera
+        let yaw = 0;
+        let pitch = 0;
+        let isSprinting = false;
+
+        const leftZone = document.getElementById('leftZone');
+        const rightZone = document.getElementById('rightZone');
+        const sprintBtn = document.getElementById('sprintBtn');
+
+        // Movement Joystick Logic
+        leftZone.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.changedTouches[0];
+            moveTouch = { id: touch.identifier, startX: touch.clientX, startY: touch.clientY };
+        }, {passive: false});
+
+        leftZone.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if(!moveTouch) return;
+            for(let i=0; i<e.changedTouches.length; i++) {
+                if(e.changedTouches[i].identifier === moveTouch.id) {
+                    let dx = e.changedTouches[i].clientX - moveTouch.startX;
+                    let dy = e.changedTouches[i].clientY - moveTouch.startY;
+                    // Normalize and cap
+                    let maxDist = 50;
+                    moveVector.x = Math.max(-1, Math.min(1, dx / maxDist));
+                    moveVector.y = Math.max(-1, Math.min(1, dy / maxDist));
+                }
+            }
+        }, {passive: false});
+
+        leftZone.addEventListener('touchend', (e) => {
+            for(let i=0; i<e.changedTouches.length; i++) {
+                if(moveTouch && e.changedTouches[i].identifier === moveTouch.id) {
+                    moveTouch = null;
+                    moveVector.set(0,0);
+                }
+            }
+        });
+
+        // Look Area Logic
+        rightZone.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.changedTouches[0];
+            lookTouch = { id: touch.identifier, lastX: touch.clientX, lastY: touch.clientY };
+        }, {passive: false});
+
+        rightZone.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if(!lookTouch) return;
+            for(let i=0; i<e.changedTouches.length; i++) {
+                if(e.changedTouches[i].identifier === lookTouch.id) {
+                    let dx = e.changedTouches[i].clientX - lookTouch.lastX;
+                    let dy = e.changedTouches[i].clientY - lookTouch.lastY;
+                    
+                    yaw -= dx * 0.005;
+                    pitch -= dy * 0.005;
+                    pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
+                    
+                    lookTouch.lastX = e.changedTouches[i].clientX;
+                    lookTouch.lastY = e.changedTouches[i].clientY;
+                }
+            }
+        }, {passive: false});
+
+        rightZone.addEventListener('touchend', (e) => {
+            for(let i=0; i<e.changedTouches.length; i++) {
+                if(lookTouch && e.changedTouches[i].identifier === lookTouch.id) {
+                    lookTouch = null;
+                }
+            }
+        });
+
+        sprintBtn.addEventListener('touchstart', (e) => { e.preventDefault(); isSprinting = true; });
+        sprintBtn.addEventListener('touchend', (e) => { e.preventDefault(); isSprinting = false; });
+
+        // Desktop Fallback (Basic Mouse/Keyboard for testing)
+        document.addEventListener('keydown', (e) => {
+            if(e.key === 'w') moveVector.y = -1;
+            if(e.key === 's') moveVector.y = 1;
+            if(e.key === 'a') moveVector.x = -1;
+            if(e.key === 'd') moveVector.x = 1;
+            if(e.key === 'Shift') isSprinting = true;
+        });
+        document.addEventListener('keyup', (e) => {
+            if(['w','s'].includes(e.key)) moveVector.y = 0;
+            if(['a','d'].includes(e.key)) moveVector.x = 0;
+            if(e.key === 'Shift') isSprinting = false;
+        });
+        document.addEventListener('mousemove', (e) => {
+            if(document.pointerLockElement) {
+                yaw -= e.movementX * 0.002;
+                pitch -= e.movementY * 0.002;
+            }
+        });
+
+        // --- START GAME ---
+        document.getElementById('startBtn').addEventListener('click', () => {
+            document.getElementById('startScreen').style.display = 'none';
+            document.getElementById('uiLayer').style.display = 'block';
+            initAudio();
+            // Optional: Request pointer lock on desktop
+            if(window.innerWidth > 800) document.body.requestPointerLock();
+        });
+
+        // --- GAME LOOP ---
+        const clock = new THREE.Clock();
+        const playerVelocity = new THREE.Vector3();
+        const cameraFrustum = new THREE.Frustum();
+        const cameraViewProjectionMatrix = new THREE.Matrix4();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+
+            // Flickering lights
+            if(Math.random() > 0.95) {
+                pointLight.intensity = 0.5 + Math.random() * 0.5;
+            }
+
+            // Apply Look Rotation
+            const quaternion = new THREE.Quaternion();
+            quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+            camera.quaternion.slerp(quaternion, 0.1); // "Floaty" dreamlike look
+
+            // Movement Logic
+            const speed = isSprinting ? 12 : 4;
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            forward.y = 0; forward.normalize();
+            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+            right.y = 0; right.normalize();
+
+            const targetVelocity = new THREE.Vector3();
+            if(moveVector.y !== 0) targetVelocity.add(forward.clone().multiplyScalar(-moveVector.y * speed));
+            if(moveVector.x !== 0) targetVelocity.add(right.clone().multiplyScalar(moveVector.x * speed));
+
+            // Lerp velocity for floaty/sluggish dream movement
+            playerVelocity.lerp(targetVelocity, delta * 3);
+            camera.position.addScaledVector(playerVelocity, delta);
+            
+            // Keep player at constant height (wading through water)
+            camera.position.y = 2 + Math.sin(clock.getElapsedTime() * (isSprinting?4:2)) * 0.1;
+
+            // --- ENTITY LOGIC (Psychological Horror) ---
+            camera.updateMatrixWorld();
+            cameraViewProjectionMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+            cameraFrustum.setFromProjectionMatrix(cameraViewProjectionMatrix);
+
+            entities.forEach(ent => {
+                // Rotate weirdly
+                ent.mesh.rotation.x += ent.rotSpeed;
+                ent.mesh.rotation.y += ent.rotSpeed;
+
+                // Move slowly
+                ent.mesh.position.y += Math.sin(clock.getElapsedTime() * 2 + ent.speed) * 0.01;
+
+                // "Weeping Angel" mechanic - if not looking, move them closer
+                if (!cameraFrustum.intersectsObject(ent.mesh)) {
+                    const dirToPlayer = camera.position.clone().sub(ent.mesh.position).normalize();
+                    // Occasionally teleport them slightly closer when out of sight
+                    if(Math.random() > 0.99) {
+                        ent.mesh.position.add(dirToPlayer.multiplyScalar(2));
+                    }
+                }
+            });
+
+            // Keep environment centered roughly on player (infinite illusion)
+            if(camera.position.x > 50) { camera.position.x -= 100; entities.forEach(e => e.mesh.position.x -= 100); }
+            if(camera.position.x < -50) { camera.position.x += 100; entities.forEach(e => e.mesh.position.x += 100); }
+            if(camera.position.z > 50) { camera.position.z -= 100; entities.forEach(e => e.mesh.position.z -= 100); }
+            if(camera.position.z < -50) { camera.position.z += 100; entities.forEach(e => e.mesh.position.z += 100); }
+
+            renderer.render(scene, camera);
+        }
+
+        // Handle resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
